@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cantonese Learning</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-cn">廣東話</div><div>Cantonese Learning</div></div>
+      <button class="nav-btn active" data-section="dashboard">🏠 Dashboard</button>
+      <button class="nav-btn" data-section="creator">✍️ Lesson Builder</button>
+      <button class="nav-btn" data-section="lessons">📚 My Lessons</button>
+      <button class="nav-btn admin-only" data-section="users">👥 Students</button>
+      <button class="nav-btn" data-section="vocabulary">📖 Vocabulary</button>
+      <button class="nav-btn" data-section="about">ℹ️ About</button>
+    </aside>
+    <main class="main-area">
+
+<header class="top">
+  <div class="brand">
+    <div class="brand-cn">廣東話</div>
+    <div>
+      <strong>Cantonese Learning</strong>
+      <small>Learn • Listen • Watch • Read</small>
+    </div>
+  </div>
+  <div class="account-area"><span id="userBadge" class="user-badge hidden"></span><button id="loginBtn" class="outline">Login</button><button id="logoutBtn" class="outline hidden">Logout</button></div>
+</header>
+
+<main>
+  <section id="dashboard" class="page-section welcome">
+    <div>
+      <span>CANTONESE</span>
+      <h1>Learn Cantonese your way.</h1>
+      <p>Create lessons with Cantonese text, Jyutping, video, audio and later add PDF meanings or study materials.</p>
+    </div>
+    <div class="big-cn">粵</div>
+  </section>
+
+  
+<section class="dashboard-extra page-section" id="dashboard-extra">
+  <div class="stats-grid">
+    <div class="stat-card"><span id="statLessons">0</span><small>Total Lessons</small></div>
+    <div class="stat-card"><span id="statVideo">0</span><small>Video Lessons</small></div>
+    <div class="stat-card"><span id="statAudio">0</span><small>Audio Lessons</small></div>
+    <div class="stat-card"><span id="statPdf">0</span><small>PDF Materials</small></div>
+  </div>
+  <div class="quick-card">
+    <div><h3>Start learning</h3><p>Create your first Cantonese lesson, then open it from My Lessons.</p></div>
+    <button class="primary" onclick="showSection('creator')">+ Create Lesson</button>
+  </div>
+</section>
+<section id="creator" class="page-section creator">
+    <div class="section-title">
+      <div>
+        <span>CONTENT CREATOR</span>
+        <h2>Create a Lesson</h2>
+      </div>
+      <div class="badge">Prototype</div>
+    </div>
+
+    
+<div class="phrase-builder">
+  <div class="builder-head">
+    <div>
+      <span>LESSON CONTENT</span>
+      <h3>Conversation Phrases</h3>
+      <p>Add multiple Cantonese sentences to one lesson.</p>
+    </div>
+    <button type="button" id="addPhraseBtn" class="secondary-btn">+ Add Phrase</button>
+  </div>
+  <div id="phraseList"></div>
+</div>
+
+<form id="lessonForm">
+      <label>Lesson Title</label>
+      <input id="title" placeholder="Example: Lesson 01 - Greetings" required>
+      <div class="row">
+        <div><label>Lesson Number</label><input id="lessonNumber" type="number" min="1" placeholder="1"></div>
+        <div><label>Category</label><select id="category">
+          <option>Daily Conversation</option><option>Greetings</option><option>Work</option>
+          <option>Shopping</option><option>Food</option><option>Travel</option><option>Other</option>
+        </select></div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Cantonese</label>
+          <textarea id="cantonese" placeholder="你好"></textarea>
+        </div>
+        <div>
+          <label>Jyutping</label>
+          <textarea id="jyutping" placeholder="nei5 hou2"></textarea>
+        </div>
+      </div>
+
+      <label>Short Meaning</label>
+      <textarea id="meaning" placeholder="မင်္ဂလာပါ"></textarea>
+
+      <label>Explanation / Notes</label>
+      <textarea id="notes" rows="5" placeholder="ဒီစကားလုံးကို ဘယ်လိုအခြေအနေမှာ သုံးလဲ..."></textarea>
+
+      <div class="media-grid">
+        <div class="media-box">
+          <h3>🎬 Video</h3>
+          <p id="videoName">No video selected</p>
+          <input id="video" type="file" accept="video/*">
+        </div>
+
+        <div class="media-box">
+          <h3>🔊 Audio</h3>
+          <p id="audioName">No audio selected</p>
+          <input id="audio" type="file" accept="audio/*">
+        </div>
+
+        <div class="media-box">
+          <h3>📄 Meaning / Study PDF</h3>
+          <p id="pdfName">No PDF selected</p>
+          <input id="pdf" type="file" accept="application/pdf">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="clearBtn" class="secondary">Clear</button>
+        <button type="submit" class="primary">Save Lesson</button>
+      </div>
+      <p id="message"></p>
+    </form>
+  </section>
+
+  <section id="lessons" class="page-section lessons">
+    <div class="section-title">
+      <div>
+        <span>YOUR CONTENT</span>
+        <h2>Lessons</h2>
+      </div>
+      <input id="search" class="search" placeholder="Search...">
+    </div>
+
+    <div id="lessonList" class="lesson-list"></div>
+  </section>
+
+
+<section id="users" class="page-section users-section">
+  <div class="section-title">
+    <div><span>ADMIN</span><h2>Student Management</h2></div>
+  </div>
+  <div class="user-create-card">
+    <h3>Create Student Account</h3>
+    <div class="row">
+      <div><label>Username</label><input id="newUsername" placeholder="student01"></div>
+      <div><label>Password</label><input id="newPassword" type="password" placeholder="••••••••"></div>
+    </div>
+    <button id="createStudentBtn" class="primary">Create Student</button>
+    <p id="userMessage"></p>
+  </div>
+  <div id="userList" class="user-list"></div>
+</section>
+
+<section id="vocabulary" class="page-section vocabulary-section">
+  <div class="section-title"><div><span>WORD BANK</span><h2>Vocabulary</h2><p>Useful Cantonese words for daily learning.</p></div><input id="vocabSearch" class="search" placeholder="Search vocabulary..."></div>
+  <div class="vocab-admin-card admin-only">
+    <h3 id="vocabFormTitle">+ Add Vocabulary</h3>
+    <div class="row"><div><label>Cantonese</label><input id="vocabCantonese" placeholder="你好"></div><div><label>Jyutping</label><input id="vocabJyutping" placeholder="nei5 hou2"></div></div>
+    <label>Myanmar Meaning</label><input id="vocabMeaning" placeholder="မင်္ဂလာပါ">
+    <label>Example Sentence</label><textarea id="vocabExample" rows="3" placeholder="你好嗎？"></textarea>
+    <div class="actions"><button type="button" id="clearVocabBtn" class="secondary">Clear</button><button type="button" id="saveVocabBtn" class="primary">Save Vocabulary</button></div>
+    <p id="vocabMessage"></p>
+  </div>
+  <div id="vocabList" class="vocab-list"></div>
+</section>
+
+<section id="about" class="page-section about-section">
+  <div class="section-head"><div><h2 id="aboutTitle">About this app</h2><p>Information about this Cantonese learning app.</p></div></div>
+  <div class="about-card">
+    <div id="aboutContent" class="about-content"></div>
+    <div class="about-editor admin-only">
+      <h3>Edit About</h3><label>Title</label><input id="aboutTitleInput" placeholder="About this app">
+      <label>About Text</label><textarea id="aboutContentInput" rows="10" placeholder="Write your About information here..."></textarea>
+      <div class="actions"><button type="button" id="saveAboutBtn" class="primary">Save About</button></div><p id="aboutMessage"></p>
+    </div>
+  </div>
+</section>
+</main>
+
+<div id="viewer" class="modal hidden">
+  <div class="modal-card">
+    <button id="closeViewer" class="close">×</button>
+    <div id="viewMeta" class="view-meta"></div>
+    <h2 id="viewTitle"></h2>
+    <div id="viewCantonese" class="view-cn"></div>
+    <div id="viewJyutping" class="view-jp"></div>
+    <div id="viewMeaning" class="view-meaning"></div>
+    
+<div class="phrase-viewer">
+  <h3>Conversation</h3>
+  <div id="viewPhrases"></div>
+</div>
+
+    <div id="viewNotes" class="view-notes"></div>
+
+    <div id="viewVideoBox" class="viewer-media hidden">
+      <h3>🎬 Video</h3>
+      <video id="viewVideo" controls></video>
+    </div>
+
+    <div id="viewAudioBox" class="viewer-media hidden">
+      <h3>🔊 Audio</h3>
+      <audio id="viewAudio" controls></audio>
+    </div>
+
+    <div id="viewPdfBox" class="viewer-media hidden">
+      <h3>📄 Meaning / Study PDF</h3>
+      <a id="viewPdf" target="_blank" class="pdf-button">Open PDF</a>
+    </div>
+  </div>
+</div>
+
+
+<div id="authModal" class="modal hidden">
+  <div class="modal-card auth-card">
+    <button id="closeAuth" class="close">×</button>
+    <div class="auth-logo">廣東話</div>
+    <h2>Sign in</h2>
+    <p class="auth-sub">Choose an account to enter the learning workspace.</p>
+    <label>Username</label><input id="username" autocomplete="username" placeholder="admin or student">
+    <label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button id="authSubmit" class="primary full">Login</button>
+    <p id="authMessage" class="auth-message"></p>
+    <div class="demo-box"><b>Demo accounts</b><br>Admin: <code>admin</code> / <code>admin123</code><br>Student: <code>student</code> / <code>student123</code></div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+    </main>
+  </div>
+</body>
+</html>
