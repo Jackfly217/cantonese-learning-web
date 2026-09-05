@@ -1,11 +1,12 @@
 {
-  "name": "cantonese-learning-v7-3",
-  "version": "7.3.0",
+  "name": "cantonese-learning-v8-supabase",
+  "version": "8.0.0",
   "private": true,
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
     "bcryptjs": "^2.4.3",
     "express": "^5.1.0",
     "express-session": "^1.18.2",
