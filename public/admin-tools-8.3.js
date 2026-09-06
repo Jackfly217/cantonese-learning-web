@@ -41,7 +41,14 @@
       .admin-student-actions{display:flex;gap:7px;flex-wrap:wrap}
       .admin-role{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:700}
       .admin-cleanup-note{font-size:13px;color:#6b7280;background:#f9fafb;border-radius:10px;padding:12px 14px;line-height:1.5;margin-top:14px}
-      @media(max-width:700px){.admin-tools-grid{grid-template-columns:1fr}.admin-tools-field.full{grid-column:auto}}
+      .admin-tools-section .admin-tools-card{display:block!important;position:relative;box-sizing:border-box}
+      .admin-student-table-wrap{display:block!important;width:100%;margin-top:10px}
+      .admin-student-table{display:table!important;background:#fff}
+      .admin-student-table thead{display:table-header-group!important}
+      .admin-student-table tbody{display:table-row-group!important}
+      .admin-student-table tr{display:table-row!important}
+      .admin-student-table th,.admin-student-table td{display:table-cell!important}
+      @media(max-width:700px){.admin-tools-grid{grid-template-columns:1fr}.admin-tools-field.full{grid-column:auto}.admin-student-table{min-width:560px}}
     `;
     document.head.appendChild(style);
   }
@@ -235,14 +242,29 @@
 
   function cleanupDemoCredentials() {
     const terms = ["admin123", "student123"];
+    const selectors = [
+      "#demo-accounts", ".demo-accounts", ".demo-login", ".demo-credentials",
+      "[class*=demo]", "[id*=demo]"
+    ];
+
+    selectors.forEach(sel => {
+      document.querySelectorAll(sel).forEach(el => {
+        if (terms.some(t => (el.textContent || "").toLowerCase().includes(t))) el.remove();
+      });
+    });
+
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    const nodes=[]; let n; while((n=walker.nextNode())) nodes.push(n);
+    const nodes = []; let n;
+    while ((n = walker.nextNode())) nodes.push(n);
     nodes.forEach(node => {
-      const text=node.nodeValue || "";
-      if (terms.some(t => text.toLowerCase().includes(t))) {
-        const parent=node.parentElement;
-        if (parent && /demo|admin|student|login/i.test(parent.textContent || "")) parent.remove();
-        else node.nodeValue=text.replace(/admin123|student123/gi, "");
+      const text = node.nodeValue || "";
+      if (!terms.some(t => text.toLowerCase().includes(t))) return;
+      const parent = node.parentElement;
+      const block = parent?.closest("p,div,small,li,section,aside,form") || parent;
+      if (block && terms.some(t => (block.textContent || "").toLowerCase().includes(t))) {
+        block.remove();
+      } else {
+        node.nodeValue = text.replace(/admin123|student123/gi, "").replace(/\s{2,}/g, " ").trim();
       }
     });
   }
@@ -251,8 +273,10 @@
     if (booted) return; booted=true;
     try {
       const res=await fetch("/api/me",{credentials:"same-origin"}); const data=await res.json(); currentUser=data.user||null;
+      // Remove legacy demo credentials for every visitor, including the login page.
+      cleanupDemoCredentials();
       if(currentUser?.role !== "admin") return;
-      addStyles(); ensureStudentNav(); addAboutEditor(); cleanupDemoCredentials();
+      addStyles(); ensureStudentNav(); addAboutEditor();
     } catch(_) {}
   }
 

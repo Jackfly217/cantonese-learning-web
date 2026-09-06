@@ -8,7 +8,7 @@ const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const APP_VERSION = "8.3.0";
+const APP_VERSION = "8.3.1";
 
 // ------------------------------------------------------------
 // Supabase
