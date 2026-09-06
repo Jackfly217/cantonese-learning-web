@@ -3,6 +3,7 @@ const session = require("express-session");
 const bcrypt = require("bcryptjs");
 const multer = require("multer");
 const path = require("path");
+const fs = require("fs");
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
@@ -224,16 +225,44 @@ async function getLessonRow(id) {
   return data;
 }
 
-function rowToVocabulary(row) {
+function rowToVocabulary(row, audioUrl = "") {
   return {
     id: Number(row.id),
     cantonese: row.cantonese || "",
     jyutping: row.jyutping || "",
     meaning: row.meaning || "",
     example: row.example || "",
+    audioUrl: audioUrl || "",
+    audio: audioUrl || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+async function decorateVocabulary(row) {
+  const audioUrl = await signedUrl(row.audio_url || "");
+  return rowToVocabulary(row, audioUrl);
+}
+
+function vocabularyStoragePath(vocabularyId, originalName) {
+  const stamp = Date.now();
+  const safe = cleanFileName(originalName);
+  return `vocabulary/${vocabularyId}/audio-${stamp}-${safe}`;
+}
+
+async function uploadVocabularyAudio(file, vocabularyId) {
+  if (!file) return "";
+
+  const objectPath = vocabularyStoragePath(vocabularyId, file.originalname);
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET)
+    .upload(objectPath, file.buffer, {
+      contentType: file.mimetype || "audio/mpeg",
+      upsert: false
+    });
+
+  if (error) throw error;
+  return objectPath;
 }
 
 async function ensureAdminUser() {
@@ -389,14 +418,20 @@ app.get("/api/vocabulary", loginRequired, async (req, res) => {
       .order("created_at", { ascending: false });
 
     if (error) throw error;
-    res.json((data || []).map(rowToVocabulary));
+
+    const result = [];
+    for (const row of data || []) result.push(await decorateVocabulary(row));
+    res.json(result);
   } catch (err) {
     console.error("Get vocabulary error:", err);
     res.status(500).json({ error: "Could not load vocabulary." });
   }
 });
 
-app.post("/api/vocabulary", adminRequired, async (req, res) => {
+app.post("/api/vocabulary", adminRequired, mediaUpload, async (req, res) => {
+  const uploadedPaths = [];
+  let createdVocabularyId = null;
+
   try {
     const cantonese = String(req.body?.cantonese || "").trim();
     const jyutping = String(req.body?.jyutping || "").trim();
@@ -411,30 +446,54 @@ app.post("/api/vocabulary", adminRequired, async (req, res) => {
 
     const { data, error } = await supabase
       .from("vocabulary")
-      .insert({ cantonese, jyutping, meaning, example })
+      .insert({ cantonese, jyutping, meaning, example, audio_url: "" })
       .select()
       .single();
 
     if (error) throw error;
+    createdVocabularyId = Number(data.id);
 
-    res.status(201).json(rowToVocabulary(data));
+    const audioFile = (req.files || []).find(f => f.fieldname === "audio");
+    if (audioFile) {
+      const audioPath = await uploadVocabularyAudio(audioFile, createdVocabularyId);
+      uploadedPaths.push(audioPath);
+
+      const { data: updated, error: updateError } = await supabase
+        .from("vocabulary")
+        .update({ audio_url: audioPath, updated_at: new Date().toISOString() })
+        .eq("id", createdVocabularyId)
+        .select()
+        .single();
+
+      if (updateError) throw updateError;
+      return res.status(201).json(await decorateVocabulary(updated));
+    }
+
+    res.status(201).json(await decorateVocabulary(data));
   } catch (err) {
     console.error("Create vocabulary error:", err);
-    res.status(500).json({ error: "Could not save vocabulary." });
+    await removeStoragePaths(uploadedPaths);
+
+    if (Number.isFinite(createdVocabularyId) && createdVocabularyId > 0) {
+      const { error: cleanupError } = await supabase
+        .from("vocabulary")
+        .delete()
+        .eq("id", createdVocabularyId);
+      if (cleanupError) console.error("Vocabulary row cleanup error:", cleanupError);
+    }
+
+    res.status(500).json({
+      error: "Could not save vocabulary.",
+      detail: err?.message || ""
+    });
   }
 });
 
-app.put("/api/vocabulary/:id", adminRequired, async (req, res) => {
+app.put("/api/vocabulary/:id", adminRequired, mediaUpload, async (req, res) => {
+  const newlyUploadedPaths = [];
+
   try {
     const id = Number(req.params.id);
-
-    const updates = {};
-    for (const key of ["cantonese", "jyutping", "meaning", "example"]) {
-      if (req.body?.[key] !== undefined) {
-        updates[key] = String(req.body[key] || "").trim();
-      }
-    }
-
     const { data: current, error: findError } = await supabase
       .from("vocabulary")
       .select("*")
@@ -444,11 +503,17 @@ app.put("/api/vocabulary/:id", adminRequired, async (req, res) => {
     if (findError) throw findError;
     if (!current) return res.status(404).json({ error: "Vocabulary not found." });
 
+    const updates = {};
+    for (const key of ["cantonese", "jyutping", "meaning", "example"]) {
+      if (req.body?.[key] !== undefined) updates[key] = String(req.body[key] || "").trim();
+    }
+
     const next = {
       cantonese: updates.cantonese !== undefined ? updates.cantonese : current.cantonese,
       jyutping: updates.jyutping !== undefined ? updates.jyutping : current.jyutping,
       meaning: updates.meaning !== undefined ? updates.meaning : current.meaning,
       example: updates.example !== undefined ? updates.example : current.example,
+      audio_url: current.audio_url || "",
       updated_at: new Date().toISOString()
     };
 
@@ -456,6 +521,13 @@ app.put("/api/vocabulary/:id", adminRequired, async (req, res) => {
       return res.status(400).json({
         error: "Cantonese and Myanmar meaning are required."
       });
+    }
+
+    const audioFile = (req.files || []).find(f => f.fieldname === "audio");
+    if (audioFile) {
+      const newPath = await uploadVocabularyAudio(audioFile, id);
+      newlyUploadedPaths.push(newPath);
+      next.audio_url = newPath;
     }
 
     const { data, error } = await supabase
@@ -466,10 +538,19 @@ app.put("/api/vocabulary/:id", adminRequired, async (req, res) => {
       .single();
 
     if (error) throw error;
-    res.json(rowToVocabulary(data));
+
+    if (current.audio_url && current.audio_url !== data.audio_url) {
+      await removeStoragePaths([current.audio_url]);
+    }
+
+    res.json(await decorateVocabulary(data));
   } catch (err) {
     console.error("Update vocabulary error:", err);
-    res.status(500).json({ error: "Could not update vocabulary." });
+    await removeStoragePaths(newlyUploadedPaths);
+    res.status(500).json({
+      error: "Could not update vocabulary.",
+      detail: err?.message || ""
+    });
   }
 });
 
@@ -479,7 +560,7 @@ app.delete("/api/vocabulary/:id", adminRequired, async (req, res) => {
 
     const { data: current, error: findError } = await supabase
       .from("vocabulary")
-      .select("id")
+      .select("id, audio_url")
       .eq("id", id)
       .maybeSingle();
 
@@ -492,6 +573,7 @@ app.delete("/api/vocabulary/:id", adminRequired, async (req, res) => {
       .eq("id", id);
 
     if (error) throw error;
+    await removeStoragePaths([current.audio_url]);
     res.json({ ok: true });
   } catch (err) {
     console.error("Delete vocabulary error:", err);
@@ -846,6 +928,32 @@ app.delete("/api/users/:id", adminRequired, async (req, res) => {
   } catch (err) {
     console.error("Delete user error:", err);
     res.status(500).json({ error: "Could not delete user." });
+  }
+});
+
+// ------------------------------------------------------------
+// Vocabulary audio frontend helper
+// ------------------------------------------------------------
+// The existing frontend can stay unchanged. This middleware injects a tiny
+// helper script into HTML responses so the Vocabulary page gets audio upload
+// and playback without replacing the current UI.
+const FRONTEND_DIR = path.join(__dirname, "public");
+app.use((req, res, next) => {
+  if (req.method !== "GET" || !(req.headers.accept || "").includes("text/html")) return next();
+
+  const indexPath = path.join(FRONTEND_DIR, "index.html");
+  if (!fs.existsSync(indexPath)) return next();
+
+  try {
+    let html = fs.readFileSync(indexPath, "utf8");
+    const tag = '<script src="/vocabulary-audio.js"></script>';
+    if (!html.includes("/vocabulary-audio.js")) {
+      html = html.replace(/<\/body>/i, `${tag}</body>`);
+    }
+    res.type("html").send(html);
+  } catch (err) {
+    console.error("Frontend injection error:", err);
+    next();
   }
 });
 
