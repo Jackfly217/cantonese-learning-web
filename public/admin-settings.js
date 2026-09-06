@@ -39,9 +39,16 @@
   }
 
   function findAboutNav() {
+    // The existing app uses navigation items with data-section attributes
+    // and emoji labels (for example: "ℹ️ About"), so do not rely on an
+    // exact text match. Prefer the real About nav item when available.
+    const bySection = document.querySelector('[data-section="about"], [data-page="about"]');
+    if (bySection && bySection.offsetParent !== null) return bySection;
+
     return [...document.querySelectorAll("a,button")].find(el => {
-      const text = (el.textContent || "").trim();
-      return /^About$/i.test(text) && el.offsetParent !== null;
+      if (el.offsetParent === null) return false;
+      const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+      return /(^|\s)About$/i.test(text) || /About/i.test(text);
     });
   }
 
@@ -59,6 +66,7 @@
     nav.removeAttribute("data-section");
     nav.removeAttribute("aria-current");
     nav.textContent = "⚙ Settings";
+    nav.setAttribute("data-section", "admin-settings");
     nav.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopImmediatePropagation();

@@ -1,6 +1,6 @@
 {
   "name": "cantonese-learning-v8-supabase",
-  "version": "8.2.0",
+  "version": "8.2.1",
   "private": true,
   "scripts": {
     "start": "node server.js"
