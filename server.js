@@ -8,7 +8,7 @@ const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const APP_VERSION = "8.3.1";
+const APP_VERSION = "8.3.3";
 
 // ------------------------------------------------------------
 // Supabase
@@ -1102,7 +1102,7 @@ app.use((req, res, next) => {
   try {
     let html = fs.readFileSync(indexPath, "utf8");
     const tags = [
-      '<script src="/vocabulary-audio.js"></script>',
+      '<script src="/vocabulary-audio.js?v=8.3.3"></script>',
       '<script src="/admin-settings.js"></script>',
       '<script src="/admin-tools-8.3.js"></script>'
     ];

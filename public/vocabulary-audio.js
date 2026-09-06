@@ -1,22 +1,12 @@
 (() => {
   "use strict";
 
-  const STYLE_ID = "vocabulary-audio-style-832";
-  const AUDIO_INPUT_ID = "vocabulary-audio-input-832";
-  const AUDIO_PREVIEW_ID = "vocabulary-audio-preview-832";
-
-  function esc(value) {
-    return String(value ?? "").replace(/[&<>'"]/g, c => ({
-      "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;"
-    }[c]));
-  }
+  const STYLE_ID = "vocabulary-audio-style-833";
+  const AUDIO_INPUT_ID = "vocabulary-audio-input-833";
+  const AUDIO_PREVIEW_ID = "vocabulary-audio-preview-833";
 
   function isVocabularyPage() {
-    // Admins have the editor, but students do not. The old check required
-    // the admin-only Save Vocabulary button, so student audio never loaded.
-    if (document.querySelector("#vocabulary")) return true;
-    const text = document.body?.innerText || "";
-    return /\bVocabulary\b/i.test(text);
+    return !!document.querySelector("#vocabulary") || /\bVocabulary\b/i.test(document.body?.innerText || "");
   }
 
   function addStyles() {
@@ -29,7 +19,7 @@
       .vocab-audio-label{font-weight:600;color:#111827}
       .vocab-audio-box input[type=file]{max-width:100%}
       .vocab-audio-preview{width:min(100%,420px);margin-top:10px}
-      .vocab-audio-play{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:7px 11px;border:0;border-radius:8px;cursor:pointer;font:inherit}
+      .vocab-audio-player{display:block;width:100%;margin-top:12px}
       .vocab-audio-status{font-size:13px;color:#6b7280}
     `;
     document.head.appendChild(style);
@@ -48,7 +38,7 @@
   function visibleFields(editor) {
     if (!editor) return [];
     return [...editor.querySelectorAll("input, textarea")].filter(el => {
-      if (el.type === "hidden" || el.type === "file" || el.type === "search") return false;
+      if (["hidden", "file", "search"].includes(el.type)) return false;
       const r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0;
     });
@@ -74,11 +64,13 @@
     };
   }
 
-  function findOrCreateAudioBox(editor) {
-    let box = editor.querySelector(".vocab-audio-box");
-    if (box) return box;
+  function ensureEditorAudio() {
+    if (!isVocabularyPage()) return;
+    const editor = findEditor();
+    if (!editor || editor.querySelector("." + AUDIO_INPUT_ID)) return;
+    addStyles();
 
-    box = document.createElement("div");
+    const box = document.createElement("div");
     box.className = "vocab-audio-box";
     box.innerHTML = `
       <div class="vocab-audio-row">
@@ -90,12 +82,8 @@
     `;
 
     const save = findSaveButton();
-    if (save) {
-      const parent = save.closest("div") || save.parentElement;
-      (parent?.parentElement || editor).appendChild(box);
-    } else {
-      editor.appendChild(box);
-    }
+    const target = save?.closest("div")?.parentElement || editor;
+    target.appendChild(box);
 
     const input = box.querySelector("input[type=file]");
     const preview = box.querySelector("audio");
@@ -105,19 +93,6 @@
       preview.src = URL.createObjectURL(file);
       preview.hidden = false;
     });
-    return box;
-  }
-
-  function ensureEditorAudio() {
-    if (!isVocabularyPage()) return;
-    addStyles();
-    const editor = findEditor();
-    if (!editor) return;
-    findOrCreateAudioBox(editor);
-  }
-
-  function vocabularyRoot() {
-    return document.querySelector("#vocabulary") || document.body;
   }
 
   function addAudioToCard(card, item) {
@@ -130,61 +105,55 @@
     audio.src = item.audioUrl;
     audio.dataset.vocabularyAudio = "1";
     audio.setAttribute("aria-label", `Pronunciation audio for ${item.cantonese || "vocabulary word"}`);
-    audio.style.width = "100%";
-    audio.style.marginTop = "12px";
+    audio.className = "vocab-audio-player";
 
-    // Put playback below the vocabulary meaning/example, before admin actions.
-    const actionButton = [...card.querySelectorAll("button")].find(b => /Edit|Delete/i.test(b.textContent || ""));
-    if (actionButton?.parentElement) {
-      actionButton.parentElement.before(audio);
-    } else {
-      card.appendChild(audio);
-    }
+    const actions = [...card.querySelectorAll("button")].find(b => /^(Edit|Delete)$/i.test((b.textContent || "").trim()));
+    if (actions?.parentElement) actions.parentElement.before(audio);
+    else card.appendChild(audio);
   }
 
   function addPlayButtonsFromData(list) {
     if (!isVocabularyPage()) return;
-    const root = vocabularyRoot();
-    const items = (list || []).filter(x => x && x.audioUrl);
+    const root = document.querySelector("#vocabList");
+    if (!root) return;
+    const items = (list || []).filter(x => x && x.audioUrl && x.cantonese);
     if (!items.length) return;
 
-    // Prefer actual vocabulary cards, but support the existing markup too.
-    const candidates = [...root.querySelectorAll("article, li, [class*=card], [class*=Card], .vocab-item, .vocabulary-item")];
-    const seen = new Set();
-
-    for (const card of candidates) {
-      if (!card || seen.has(card)) continue;
-      const text = card.innerText || "";
-      const item = items.find(x => x.cantonese && text.includes(x.cantonese));
-      if (!item) continue;
-      seen.add(card);
-      addAudioToCard(card, item);
+    // The app renders vocabulary entries directly inside #vocabList. Matching only
+    // those direct children avoids accidentally attaching the player to the whole page.
+    const cards = [...root.children];
+    for (const card of cards) {
+      const text = card.textContent || "";
+      const item = items.find(x => text.includes(x.cantonese));
+      if (item) addAudioToCard(card, item);
     }
 
-    // Fallback: if cards don't have useful classes, locate the Cantonese word
-    // text and attach the player to its nearest block container.
+    // Fallback for a nested renderer: find the word text inside #vocabList and use
+    // the nearest direct child as the card.
     for (const item of items) {
+      if ([...root.children].some(card => card.querySelector("audio[data-vocabulary-audio]") && (card.textContent || "").includes(item.cantonese))) continue;
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let node;
       while ((node = walker.nextNode())) {
         if ((node.nodeValue || "").trim() !== item.cantonese) continue;
-        const el = node.parentElement;
-        const card = el?.closest("article, li, div") || el;
+        let card = node.parentElement;
+        while (card && card.parentElement !== root) card = card.parentElement;
         if (card) addAudioToCard(card, item);
         break;
       }
     }
   }
 
+  async function getVocabulary() {
+    const res = await fetch("/api/vocabulary", { credentials: "same-origin", cache: "no-store" });
+    if (!res.ok) throw new Error(`Vocabulary request failed (${res.status})`);
+    return await res.json();
+  }
+
   async function loadAudioMap() {
     if (!isVocabularyPage()) return;
     try {
-      const res = await fetch("/api/vocabulary", { credentials: "same-origin" });
-      if (!res.ok) return;
-      const list = await res.json();
-      const map = new Map(list.map(x => [String(x.id), x]));
-
-      // Admin edit mode: infer the vocabulary id from the visible fields.
+      const list = await getVocabulary();
       const editor = findEditor();
       if (editor) {
         const fields = getFields(editor);
@@ -194,9 +163,10 @@
         const match = list.find(x => x.cantonese === cv && x.jyutping === jp && x.meaning === mn);
         if (match) editor.dataset.vocabularyId = String(match.id);
       }
-
       addPlayButtonsFromData(list);
-    } catch (_) {}
+    } catch (err) {
+      console.warn("Vocabulary audio: could not load audio map", err);
+    }
   }
 
   async function saveVocabularyWithAudio(event) {
@@ -205,10 +175,8 @@
     if (!isVocabularyPage()) return;
 
     const editor = findEditor();
-    if (!editor) return;
-    const input = editor.querySelector(`#${AUDIO_INPUT_ID}`);
-    // Let the existing frontend handle ordinary saves/edits when no audio is selected.
-    if (!input?.files?.[0]) return;
+    const input = editor?.querySelector(`#${AUDIO_INPUT_ID}`);
+    if (!editor || !input?.files?.[0]) return;
 
     const fields = getFields(editor);
     if (!fields.cantonese || !fields.meaning) return;
@@ -216,25 +184,34 @@
     event.preventDefault();
     event.stopImmediatePropagation();
 
-    const fd = new FormData();
-    fd.append("cantonese", fields.cantonese.value.trim());
-    fd.append("jyutping", fields.jyutping?.value.trim() || "");
-    fd.append("meaning", fields.meaning.value.trim());
-    fd.append("example", fields.example?.value.trim() || "");
-
-    if (input?.files?.[0]) fd.append("audio", input.files[0]);
-
-    // Existing frontend edit mode normally exposes an id in a data attribute; boot() also
-    // infers it from the current field values when possible.
-    const id = editor.dataset.vocabularyId || editor.getAttribute("data-vocabulary-id") || "";
-    const url = id ? `/api/vocabulary/${encodeURIComponent(id)}` : "/api/vocabulary";
-    const method = id ? "PUT" : "POST";
-
-    save.disabled = true;
+    let id = editor.dataset.vocabularyId || editor.getAttribute("data-vocabulary-id") || "";
     try {
-      const res = await fetch(url, { method, body: fd, credentials: "same-origin" });
+      // Resolve edit mode reliably even if the page was refreshed before the helper
+      // finished loading the vocabulary list.
+      if (!id) {
+        const list = await getVocabulary();
+        const match = list.find(x =>
+          x.cantonese === fields.cantonese.value.trim() &&
+          x.jyutping === (fields.jyutping?.value.trim() || "") &&
+          x.meaning === fields.meaning.value.trim()
+        );
+        if (match) id = String(match.id);
+      }
+
+      const fd = new FormData();
+      fd.append("cantonese", fields.cantonese.value.trim());
+      fd.append("jyutping", fields.jyutping?.value.trim() || "");
+      fd.append("meaning", fields.meaning.value.trim());
+      fd.append("example", fields.example?.value.trim() || "");
+      fd.append("audio", input.files[0]);
+
+      const url = id ? `/api/vocabulary/${encodeURIComponent(id)}` : "/api/vocabulary";
+      const method = id ? "PUT" : "POST";
+      save.disabled = true;
+
+      const res = await fetch(url, { method, body: fd, credentials: "same-origin", cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Could not save vocabulary.");
+      if (!res.ok) throw new Error(data.error || data.detail || "Could not save vocabulary.");
       window.location.reload();
     } catch (err) {
       save.disabled = false;
@@ -250,5 +227,5 @@
   document.addEventListener("click", saveVocabularyWithAudio, true);
   new MutationObserver(() => boot()).observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener("load", () => setTimeout(boot, 300));
-  setInterval(boot, 1500);
+  setInterval(boot, 2000);
 })();
