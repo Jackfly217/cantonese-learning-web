@@ -1,12 +1,16 @@
 (() => {
   "use strict";
 
-  const STYLE_ID = "vocabulary-audio-style-833";
-  const AUDIO_INPUT_ID = "vocabulary-audio-input-833";
-  const AUDIO_PREVIEW_ID = "vocabulary-audio-preview-833";
+  const STYLE_ID = "vocabulary-audio-style-834";
+  const BOX_ID = "vocabulary-audio-box-834";
+  const AUDIO_INPUT_ID = "vocabulary-audio-input-834";
+  const AUDIO_PREVIEW_ID = "vocabulary-audio-preview-834";
+
+  let vocabularyCache = null;
+  let vocabularyLoadPromise = null;
 
   function isVocabularyPage() {
-    return !!document.querySelector("#vocabulary") || /\bVocabulary\b/i.test(document.body?.innerText || "");
+    return !!document.querySelector("#vocabulary") || !!document.querySelector("#vocabList");
   }
 
   function addStyles() {
@@ -67,10 +71,17 @@
   function ensureEditorAudio() {
     if (!isVocabularyPage()) return;
     const editor = findEditor();
-    if (!editor || editor.querySelector("." + AUDIO_INPUT_ID)) return;
+    if (!editor) return;
+
+    // IMPORTANT: use an element id / data marker, not a CSS class selector.
+    // This prevents the MutationObserver from adding the audio box forever.
+    if (editor.querySelector(`#${BOX_ID}`) || editor.querySelector(`[data-vocab-audio-box="1"]`)) return;
+
     addStyles();
 
     const box = document.createElement("div");
+    box.id = BOX_ID;
+    box.dataset.vocabAudioBox = "1";
     box.className = "vocab-audio-box";
     box.innerHTML = `
       <div class="vocab-audio-row">
@@ -90,6 +101,7 @@
     input.addEventListener("change", () => {
       const file = input.files?.[0];
       if (!file) return;
+      if (preview.src && preview.src.startsWith("blob:")) URL.revokeObjectURL(preview.src);
       preview.src = URL.createObjectURL(file);
       preview.hidden = false;
     });
@@ -119,8 +131,6 @@
     const items = (list || []).filter(x => x && x.audioUrl && x.cantonese);
     if (!items.length) return;
 
-    // The app renders vocabulary entries directly inside #vocabList. Matching only
-    // those direct children avoids accidentally attaching the player to the whole page.
     const cards = [...root.children];
     for (const card of cards) {
       const text = card.textContent || "";
@@ -128,10 +138,12 @@
       if (item) addAudioToCard(card, item);
     }
 
-    // Fallback for a nested renderer: find the word text inside #vocabList and use
-    // the nearest direct child as the card.
+    // Fallback for nested card renderers.
     for (const item of items) {
-      if ([...root.children].some(card => card.querySelector("audio[data-vocabulary-audio]") && (card.textContent || "").includes(item.cantonese))) continue;
+      const already = [...root.querySelectorAll("audio[data-vocabulary-audio]")].some(audio =>
+        (audio.closest("* > *")?.textContent || "").includes(item.cantonese)
+      );
+      if (already) continue;
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let node;
       while ((node = walker.nextNode())) {
@@ -145,9 +157,26 @@
   }
 
   async function getVocabulary() {
-    const res = await fetch("/api/vocabulary", { credentials: "same-origin", cache: "no-store" });
-    if (!res.ok) throw new Error(`Vocabulary request failed (${res.status})`);
-    return await res.json();
+    if (vocabularyCache) return vocabularyCache;
+    if (vocabularyLoadPromise) return vocabularyLoadPromise;
+
+    vocabularyLoadPromise = fetch("/api/vocabulary", {
+      credentials: "same-origin",
+      cache: "no-store"
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`Vocabulary request failed (${res.status})`);
+        return res.json();
+      })
+      .then(list => {
+        vocabularyCache = Array.isArray(list) ? list : [];
+        return vocabularyCache;
+      })
+      .finally(() => {
+        vocabularyLoadPromise = null;
+      });
+
+    return vocabularyLoadPromise;
   }
 
   async function loadAudioMap() {
@@ -186,8 +215,6 @@
 
     let id = editor.dataset.vocabularyId || editor.getAttribute("data-vocabulary-id") || "";
     try {
-      // Resolve edit mode reliably even if the page was refreshed before the helper
-      // finished loading the vocabulary list.
       if (!id) {
         const list = await getVocabulary();
         const match = list.find(x =>
@@ -221,11 +248,24 @@
 
   function boot() {
     ensureEditorAudio();
-    loadAudioMap();
+    if (vocabularyCache) addPlayButtonsFromData(vocabularyCache);
+    else loadAudioMap();
   }
 
   document.addEventListener("click", saveVocabularyWithAudio, true);
-  new MutationObserver(() => boot()).observe(document.documentElement, { childList: true, subtree: true });
+
+  // Debounced observer: react to SPA rendering without repeatedly fetching the API.
+  let observerTimer = null;
+  const observer = new MutationObserver(() => {
+    clearTimeout(observerTimer);
+    observerTimer = setTimeout(boot, 250);
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
   window.addEventListener("load", () => setTimeout(boot, 300));
-  setInterval(boot, 2000);
+  document.addEventListener("click", (event) => {
+    if (event.target.closest('[data-section="vocabulary"], [data-page="vocabulary"], #vocabulary')) {
+      setTimeout(boot, 100);
+    }
+  });
 })();
