@@ -1,10 +1,10 @@
 (() => {
   "use strict";
 
-  const STYLE_ID = "vocabulary-audio-style-834";
-  const BOX_ID = "vocabulary-audio-box-834";
-  const AUDIO_INPUT_ID = "vocabulary-audio-input-834";
-  const AUDIO_PREVIEW_ID = "vocabulary-audio-preview-834";
+  const STYLE_ID = "vocabulary-audio-style-835";
+  const BOX_ID = "vocabulary-audio-box-835";
+  const AUDIO_INPUT_ID = "vocabulary-audio-input-835";
+  const AUDIO_PREVIEW_ID = "vocabulary-audio-preview-835";
 
   let vocabularyCache = null;
   let vocabularyLoadPromise = null;
@@ -61,10 +61,10 @@
 
   function getFields(editor) {
     return {
-      cantonese: findField(editor, ["cantonese"], 0),
-      jyutping: findField(editor, ["jyutping"], 1),
-      meaning: findField(editor, ["myanmar", "meaning"], 2),
-      example: findField(editor, ["example", "sentence"], 3)
+      cantonese: document.getElementById("vocabCantonese") || editor?.querySelector('input[placeholder="你好"]'),
+      jyutping: document.getElementById("vocabJyutping") || editor?.querySelector('input[placeholder="nei5 hou2"]'),
+      meaning: document.getElementById("vocabMeaning") || editor?.querySelector('input[placeholder="မင်္ဂလာပါ"]'),
+      example: document.getElementById("vocabExample") || editor?.querySelector("textarea")
     };
   }
 
@@ -199,49 +199,72 @@
   }
 
   async function saveVocabularyWithAudio(event) {
-    const save = event.target.closest("button");
+    const save = event.target?.closest?.("button");
     if (!save || !/Save Vocabulary/i.test(save.textContent || "")) return;
     if (!isVocabularyPage()) return;
 
     const editor = findEditor();
-    const input = editor?.querySelector(`#${AUDIO_INPUT_ID}`);
-    if (!editor || !input?.files?.[0]) return;
+    const input = document.getElementById(AUDIO_INPUT_ID);
+    const file = input?.files?.[0];
+    if (!editor || !file) return; // Let the normal JSON save handler run when no audio is selected.
+
+    // This handler runs in capture phase. Stop the original onclick handler so it
+    // cannot submit JSON and complain about missing fields while the audio upload
+    // is being handled here.
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
 
     const fields = getFields(editor);
-    if (!fields.cantonese || !fields.meaning) return;
+    const cantonese = fields.cantonese?.value?.trim() || "";
+    const jyutping = fields.jyutping?.value?.trim() || "";
+    const meaning = fields.meaning?.value?.trim() || "";
+    const example = fields.example?.value?.trim() || "";
 
-    event.preventDefault();
-    event.stopImmediatePropagation();
+    if (!cantonese || !meaning) {
+      alert("Cantonese and Myanmar meaning are required.");
+      return;
+    }
 
     let id = editor.dataset.vocabularyId || editor.getAttribute("data-vocabulary-id") || "";
     try {
+      // For an edit, identify the existing row from the current field values.
       if (!id) {
         const list = await getVocabulary();
         const match = list.find(x =>
-          x.cantonese === fields.cantonese.value.trim() &&
-          x.jyutping === (fields.jyutping?.value.trim() || "") &&
-          x.meaning === fields.meaning.value.trim()
+          x.cantonese === cantonese &&
+          x.jyutping === jyutping &&
+          x.meaning === meaning
         );
         if (match) id = String(match.id);
       }
 
       const fd = new FormData();
-      fd.append("cantonese", fields.cantonese.value.trim());
-      fd.append("jyutping", fields.jyutping?.value.trim() || "");
-      fd.append("meaning", fields.meaning.value.trim());
-      fd.append("example", fields.example?.value.trim() || "");
-      fd.append("audio", input.files[0]);
+      fd.append("cantonese", cantonese);
+      fd.append("jyutping", jyutping);
+      fd.append("meaning", meaning);
+      fd.append("example", example);
+      fd.append("audio", file);
 
       const url = id ? `/api/vocabulary/${encodeURIComponent(id)}` : "/api/vocabulary";
       const method = id ? "PUT" : "POST";
       save.disabled = true;
+      const oldText = save.textContent;
+      save.textContent = "Saving…";
 
-      const res = await fetch(url, { method, body: fd, credentials: "same-origin", cache: "no-store" });
+      const res = await fetch(url, {
+        method,
+        body: fd,
+        credentials: "same-origin",
+        cache: "no-store"
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || data.detail || "Could not save vocabulary.");
+
       window.location.reload();
     } catch (err) {
       save.disabled = false;
+      save.textContent = "Save Vocabulary";
       alert(err.message || "Could not save vocabulary.");
     }
   }

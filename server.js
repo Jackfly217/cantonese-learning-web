@@ -1102,7 +1102,7 @@ app.use((req, res, next) => {
   try {
     let html = fs.readFileSync(indexPath, "utf8");
     const tags = [
-      '<script src="/vocabulary-audio.js?v=8.3.4"></script>',
+      '<script src="/vocabulary-audio.js?v=8.3.5"></script>',
       '<script src="/admin-settings.js"></script>',
       '<script src="/admin-tools-8.3.js"></script>'
     ];
