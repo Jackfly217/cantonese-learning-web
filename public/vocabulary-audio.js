@@ -244,7 +244,6 @@
 
   function boot() {
     ensureEditorAudio();
-    addPlayButtons();
     loadAudioMap();
   }
 
