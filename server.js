@@ -8,7 +8,7 @@ const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const APP_VERSION = "8.2.0";
+const APP_VERSION = "8.3.0";
 
 // ------------------------------------------------------------
 // Supabase
@@ -993,6 +993,70 @@ app.post("/api/users", adminRequired, async (req, res) => {
   }
 });
 
+app.put("/api/users/:id", adminRequired, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const password = String(req.body?.password || "");
+    const username = String(req.body?.username || "").trim();
+
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "Invalid student ID." });
+    }
+
+    if (password && password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters." });
+    }
+
+    const { data: target, error: findError } = await supabase
+      .from("users")
+      .select("id, username, role")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (findError) throw findError;
+    if (!target) return res.status(404).json({ error: "User not found." });
+    if (target.role === "admin") {
+      return res.status(400).json({ error: "Admin account must be changed from Settings." });
+    }
+
+    const updates = {};
+    if (username && username !== target.username) {
+      if (username.length < 3 || username.length > 50) {
+        return res.status(400).json({ error: "Username must be 3–50 characters." });
+      }
+      const { data: conflict, error: conflictError } = await supabase
+        .from("users")
+        .select("id")
+        .ilike("username", username)
+        .neq("id", id)
+        .limit(1);
+      if (conflictError) throw conflictError;
+      if ((conflict || []).length) {
+        return res.status(409).json({ error: "That username is already in use." });
+      }
+      updates.username = username;
+    }
+    if (password) updates.password_hash = bcrypt.hashSync(password, 10);
+
+    if (!Object.keys(updates).length) {
+      return res.status(400).json({ error: "Please enter a new username or password." });
+    }
+
+    const { data: updated, error: updateError } = await supabase
+      .from("users")
+      .update(updates)
+      .eq("id", id)
+      .select("id, username, role")
+      .single();
+
+    if (updateError) throw updateError;
+    res.json({ id: Number(updated.id), username: updated.username, role: updated.role });
+  } catch (err) {
+    console.error("Update student error:", err);
+    res.status(500).json({ error: "Could not update student account." });
+  }
+});
+
 app.delete("/api/users/:id", adminRequired, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -1039,7 +1103,8 @@ app.use((req, res, next) => {
     let html = fs.readFileSync(indexPath, "utf8");
     const tags = [
       '<script src="/vocabulary-audio.js"></script>',
-      '<script src="/admin-settings.js"></script>'
+      '<script src="/admin-settings.js"></script>',
+      '<script src="/admin-tools-8.3.js"></script>'
     ];
     for (const tag of tags) {
       const src = tag.match(/src="([^"]+)"/)?.[1];
