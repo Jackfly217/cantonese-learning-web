@@ -8,6 +8,7 @@ const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const APP_VERSION = "8.2.0";
 
 // ------------------------------------------------------------
 // Supabase
@@ -334,6 +335,96 @@ app.get("/api/me", (req, res) => {
   res.json({ user: req.session.user || null });
 });
 
+app.put("/api/account", adminRequired, async (req, res) => {
+  try {
+    const currentPassword = String(req.body?.currentPassword || "");
+    const newUsername = String(req.body?.username || "").trim();
+    const newPassword = String(req.body?.newPassword || "");
+    const confirmPassword = String(req.body?.confirmPassword || "");
+    const currentUserId = Number(req.session.user.id);
+
+    if (!currentPassword) {
+      return res.status(400).json({ error: "Please enter your current password." });
+    }
+    if (!newUsername) {
+      return res.status(400).json({ error: "Please enter a username." });
+    }
+    if (newUsername.length < 3 || newUsername.length > 50) {
+      return res.status(400).json({ error: "Username must be 3–50 characters." });
+    }
+    if (newPassword && newPassword.length < 8) {
+      return res.status(400).json({ error: "New password must be at least 8 characters." });
+    }
+    if (newPassword && newPassword !== confirmPassword) {
+      return res.status(400).json({ error: "New passwords do not match." });
+    }
+
+    const { data: currentUser, error: currentError } = await supabase
+      .from("users")
+      .select("id, username, password_hash, role")
+      .eq("id", currentUserId)
+      .maybeSingle();
+
+    if (currentError) throw currentError;
+    if (!currentUser || currentUser.role !== "admin") {
+      return res.status(403).json({ error: "Admin account not found." });
+    }
+
+    if (!bcrypt.compareSync(currentPassword, currentUser.password_hash)) {
+      return res.status(401).json({ error: "Current password is incorrect." });
+    }
+
+    const usernameChanged = newUsername !== currentUser.username;
+    const passwordChanged = Boolean(newPassword);
+
+    if (!usernameChanged && !passwordChanged) {
+      return res.status(400).json({ error: "Please enter a new username or a new password." });
+    }
+
+    if (usernameChanged) {
+      const { data: conflicts, error: conflictError } = await supabase
+        .from("users")
+        .select("id")
+        .ilike("username", newUsername)
+        .neq("id", currentUserId)
+        .limit(1);
+
+      if (conflictError) throw conflictError;
+      if ((conflicts || []).length) {
+        return res.status(409).json({ error: "That username is already in use." });
+      }
+    }
+
+    const updates = {};
+    if (usernameChanged) updates.username = newUsername;
+    if (passwordChanged) updates.password_hash = bcrypt.hashSync(newPassword, 10);
+
+    const { data: updated, error: updateError } = await supabase
+      .from("users")
+      .update(updates)
+      .eq("id", currentUserId)
+      .select("id, username, role")
+      .single();
+
+    if (updateError) throw updateError;
+
+    req.session.user = {
+      id: Number(updated.id),
+      username: updated.username,
+      role: updated.role
+    };
+
+    res.json({
+      ok: true,
+      user: req.session.user,
+      changed: { username: usernameChanged, password: passwordChanged }
+    });
+  } catch (err) {
+    console.error("Update admin account error:", err);
+    res.status(500).json({ error: "Could not update the admin account." });
+  }
+});
+
 app.get("/api/health", async (req, res) => {
   try {
     const { error } = await supabase.from("about").select("id").eq("id", 1).maybeSingle();
@@ -342,7 +433,7 @@ app.get("/api/health", async (req, res) => {
     res.json({
       ok: true,
       service: "Cantonese Learning",
-      version: "8.0-supabase"
+      version: APP_VERSION
     });
   } catch (err) {
     console.error("Health error:", err);
@@ -946,9 +1037,15 @@ app.use((req, res, next) => {
 
   try {
     let html = fs.readFileSync(indexPath, "utf8");
-    const tag = '<script src="/vocabulary-audio.js"></script>';
-    if (!html.includes("/vocabulary-audio.js")) {
-      html = html.replace(/<\/body>/i, `${tag}</body>`);
+    const tags = [
+      '<script src="/vocabulary-audio.js"></script>',
+      '<script src="/admin-settings.js"></script>'
+    ];
+    for (const tag of tags) {
+      const src = tag.match(/src="([^"]+)"/)?.[1];
+      if (src && !html.includes(src)) {
+        html = html.replace(/<\/body>/i, `${tag}</body>`);
+      }
     }
     res.type("html").send(html);
   } catch (err) {
