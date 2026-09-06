@@ -1,0 +1,16 @@
+Cantonese Learning 8.3.6 - Speed Optimization
+
+This patch keeps the working 8.3.5 vocabulary audio frontend and optimizes the server's Supabase Storage signed-URL work.
+
+Main changes:
+- Lesson media signed URLs are generated in parallel.
+- Lesson rows are decorated in parallel.
+- Vocabulary audio signed URLs are generated in parallel.
+- App health version is bumped to 8.3.6.
+- Existing Supabase schema/data and audio upload behavior are preserved.
+
+Replace:
+- server.js -> project/server.js
+- public/vocabulary-audio.js -> project/public/vocabulary-audio.js (same working file, included for convenience)
+
+Then commit and push. Render will auto-deploy.

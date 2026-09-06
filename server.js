@@ -8,7 +8,7 @@ const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const APP_VERSION = "8.3.3";
+const APP_VERSION = "8.3.6";
 
 // ------------------------------------------------------------
 // Supabase
@@ -178,11 +178,19 @@ function normalizePhrases(value) {
 async function decorateLesson(row) {
   const phrases = normalizePhrases(row.phrases);
 
-  for (const p of phrases) {
-    if (p.audio) {
-      p.audio = await signedUrl(p.audio);
-    }
-  }
+  // Create all private media URLs in parallel instead of one-by-one.
+  const phraseAudioUrls = await Promise.all(
+    phrases.map(p => p.audio ? signedUrl(p.audio) : Promise.resolve(""))
+  );
+  phrases.forEach((p, i) => {
+    if (p.audio) p.audio = phraseAudioUrls[i];
+  });
+
+  const [video, audio, pdf] = await Promise.all([
+    signedUrl(row.video_url || ""),
+    signedUrl(row.audio_url || ""),
+    signedUrl(row.pdf_url || "")
+  ]);
 
   return {
     id: Number(row.id),
@@ -194,9 +202,9 @@ async function decorateLesson(row) {
     meaning: row.meaning || "",
     notes: row.notes || "",
     phrases,
-    video: await signedUrl(row.video_url || ""),
-    audio: await signedUrl(row.audio_url || ""),
-    pdf: await signedUrl(row.pdf_url || ""),
+    video,
+    audio,
+    pdf,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -210,9 +218,9 @@ async function getAllLessons() {
 
   if (error) throw error;
 
-  const result = [];
-  for (const row of data || []) result.push(await decorateLesson(row));
-  return result;
+  // Decorate all lessons concurrently so one slow Storage request does not
+  // block every lesson behind it.
+  return Promise.all((data || []).map(decorateLesson));
 }
 
 async function getLessonRow(id) {
@@ -510,8 +518,8 @@ app.get("/api/vocabulary", loginRequired, async (req, res) => {
 
     if (error) throw error;
 
-    const result = [];
-    for (const row of data || []) result.push(await decorateVocabulary(row));
+    // Sign all vocabulary audio URLs concurrently.
+    const result = await Promise.all((data || []).map(decorateVocabulary));
     res.json(result);
   } catch (err) {
     console.error("Get vocabulary error:", err);
