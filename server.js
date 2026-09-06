@@ -3,7 +3,6 @@ const session = require("express-session");
 const bcrypt = require("bcryptjs");
 const multer = require("multer");
 const path = require("path");
-const fs = require("fs");
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
@@ -12,14 +11,45 @@ const PORT = process.env.PORT || 3000;
 // ------------------------------------------------------------
 // Supabase
 // ------------------------------------------------------------
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY;
+function normalizeSupabaseUrl(value) {
+  const raw = String(value || "").trim().replace(/^["']|["']$/g, "");
+  if (!raw) return "";
+
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("SUPABASE_URL is not a valid URL. Use the Project URL, e.g. https://your-project.supabase.co");
+  }
+
+  if (!/^https?:$/.test(parsed.protocol)) {
+    throw new Error("SUPABASE_URL must start with http:// or https://");
+  }
+
+  // Accept the normal Project URL, but also repair the common mistake of
+  // pasting /rest/v1 or /storage/v1 into the environment variable.
+  let pathname = parsed.pathname.replace(/\/+$/, "");
+  if (pathname === "/rest/v1" || pathname.startsWith("/rest/v1/")) pathname = "";
+  if (pathname === "/storage/v1" || pathname.startsWith("/storage/v1/")) pathname = "";
+
+  if (parsed.search || parsed.hash) {
+    throw new Error("SUPABASE_URL must be the Project URL only, without a query string or hash");
+  }
+
+  parsed.pathname = pathname;
+  return parsed.toString().replace(/\/$/, "");
+}
+
+const SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL);
+const SUPABASE_SECRET_KEY = String(process.env.SUPABASE_SECRET_KEY || "").trim();
 const STORAGE_BUCKET = "lesson-files";
 
 if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
   console.error("Missing SUPABASE_URL or SUPABASE_SECRET_KEY.");
   process.exit(1);
 }
+
+console.log(`Supabase URL: ${SUPABASE_URL}`);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, {
   auth: { persistSession: false, autoRefreshToken: false }
@@ -483,6 +513,7 @@ app.get("/api/lessons", loginRequired, async (req, res) => {
 
 app.post("/api/lessons", adminRequired, mediaUpload, async (req, res) => {
   const uploadedPaths = [];
+  let createdLessonId = null;
 
   try {
     const {
@@ -522,6 +553,7 @@ app.post("/api/lessons", adminRequired, mediaUpload, async (req, res) => {
     if (insertError) throw insertError;
 
     const lessonId = Number(inserted.id);
+    createdLessonId = lessonId;
     const files = req.files || [];
 
     const videoFile = files.find(f => f.fieldname === "video");
@@ -570,12 +602,13 @@ app.post("/api/lessons", adminRequired, mediaUpload, async (req, res) => {
     console.error("Create lesson error:", err);
     await removeStoragePaths(uploadedPaths);
 
-    // If a DB row was created before a file upload failed, clean it up.
-    if (err && err.message) {
-      const maybeId = Number(req.body?.__createdLessonId);
-      if (Number.isFinite(maybeId) && maybeId > 0) {
-        await supabase.from("lessons").delete().eq("id", maybeId);
-      }
+    // If a DB row was created before a file upload/update failed, clean it up.
+    if (Number.isFinite(createdLessonId) && createdLessonId > 0) {
+      const { error: cleanupError } = await supabase
+        .from("lessons")
+        .delete()
+        .eq("id", createdLessonId);
+      if (cleanupError) console.error("Lesson row cleanup error:", cleanupError);
     }
 
     res.status(500).json({
@@ -829,7 +862,21 @@ app.get("/{*splat}", (req, res) =>
 // ------------------------------------------------------------
 async function start() {
   try {
+    // Verify the exact database endpoint before creating the admin account.
+    // This gives Render logs a clear error if the Supabase URL/key is wrong.
+    const { error: healthError } = await supabase
+      .from("about")
+      .select("id")
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (healthError) {
+      throw new Error(`Supabase Data API check failed: ${healthError.message} [${healthError.code || "no-code"}]`);
+    }
+
+    console.log("Supabase Data API connection: OK");
     await ensureAdminUser();
+
     app.listen(PORT, () => {
       console.log(`Cantonese Learning: http://localhost:${PORT}`);
     });
