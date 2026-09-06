@@ -1,9 +1,9 @@
 (() => {
   "use strict";
 
-  const STYLE_ID = "vocabulary-audio-style";
-  const AUDIO_INPUT_ID = "vocabulary-audio-input";
-  const AUDIO_PREVIEW_ID = "vocabulary-audio-preview";
+  const STYLE_ID = "vocabulary-audio-style-832";
+  const AUDIO_INPUT_ID = "vocabulary-audio-input-832";
+  const AUDIO_PREVIEW_ID = "vocabulary-audio-preview-832";
 
   function esc(value) {
     return String(value ?? "").replace(/[&<>'"]/g, c => ({
@@ -12,8 +12,11 @@
   }
 
   function isVocabularyPage() {
+    // Admins have the editor, but students do not. The old check required
+    // the admin-only Save Vocabulary button, so student audio never loaded.
+    if (document.querySelector("#vocabulary")) return true;
     const text = document.body?.innerText || "";
-    return /Vocabulary/i.test(text) && /Save Vocabulary|Add Vocabulary/i.test(text);
+    return /\bVocabulary\b/i.test(text);
   }
 
   function addStyles() {
@@ -113,30 +116,75 @@
     findOrCreateAudioBox(editor);
   }
 
-  function addPlayButtons() {
+  function vocabularyRoot() {
+    return document.querySelector("#vocabulary") || document.body;
+  }
+
+  function addAudioToCard(card, item) {
+    if (!card || !item?.audioUrl) return;
+    if (card.querySelector("audio[data-vocabulary-audio]")) return;
+
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "none";
+    audio.src = item.audioUrl;
+    audio.dataset.vocabularyAudio = "1";
+    audio.setAttribute("aria-label", `Pronunciation audio for ${item.cantonese || "vocabulary word"}`);
+    audio.style.width = "100%";
+    audio.style.marginTop = "12px";
+
+    // Put playback below the vocabulary meaning/example, before admin actions.
+    const actionButton = [...card.querySelectorAll("button")].find(b => /Edit|Delete/i.test(b.textContent || ""));
+    if (actionButton?.parentElement) {
+      actionButton.parentElement.before(audio);
+    } else {
+      card.appendChild(audio);
+    }
+  }
+
+  function addPlayButtonsFromData(list) {
     if (!isVocabularyPage()) return;
-    document.querySelectorAll("[data-vocab-audio-url]").forEach(el => {
-      if (el.dataset.audioReady === "1") return;
-      el.dataset.audioReady = "1";
-      const url = el.getAttribute("data-vocab-audio-url");
-      if (!url) return;
-      const audio = document.createElement("audio");
-      audio.controls = true;
-      audio.preload = "none";
-      audio.src = url;
-      audio.style.width = "100%";
-      el.replaceWith(audio);
-    });
+    const root = vocabularyRoot();
+    const items = (list || []).filter(x => x && x.audioUrl);
+    if (!items.length) return;
+
+    // Prefer actual vocabulary cards, but support the existing markup too.
+    const candidates = [...root.querySelectorAll("article, li, [class*=card], [class*=Card], .vocab-item, .vocabulary-item")];
+    const seen = new Set();
+
+    for (const card of candidates) {
+      if (!card || seen.has(card)) continue;
+      const text = card.innerText || "";
+      const item = items.find(x => x.cantonese && text.includes(x.cantonese));
+      if (!item) continue;
+      seen.add(card);
+      addAudioToCard(card, item);
+    }
+
+    // Fallback: if cards don't have useful classes, locate the Cantonese word
+    // text and attach the player to its nearest block container.
+    for (const item of items) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if ((node.nodeValue || "").trim() !== item.cantonese) continue;
+        const el = node.parentElement;
+        const card = el?.closest("article, li, div") || el;
+        if (card) addAudioToCard(card, item);
+        break;
+      }
+    }
   }
 
   async function loadAudioMap() {
+    if (!isVocabularyPage()) return;
     try {
       const res = await fetch("/api/vocabulary", { credentials: "same-origin" });
       if (!res.ok) return;
       const list = await res.json();
       const map = new Map(list.map(x => [String(x.id), x]));
 
-      // If the current editor is in edit mode, infer its vocabulary id from the fields.
+      // Admin edit mode: infer the vocabulary id from the visible fields.
       const editor = findEditor();
       if (editor) {
         const fields = getFields(editor);
@@ -147,30 +195,7 @@
         if (match) editor.dataset.vocabularyId = String(match.id);
       }
 
-      // Existing cards don't have a guaranteed class, so locate likely Edit/Delete groups.
-      for (const card of document.querySelectorAll("article, li, [class*=card], [class*=Card]")) {
-        const buttons = [...card.querySelectorAll("button")];
-        const edit = buttons.find(b => /Edit/i.test(b.textContent || ""));
-        const del = buttons.find(b => /Delete/i.test(b.textContent || ""));
-        if (!edit && !del) continue;
-
-        const raw = card.dataset.id || card.getAttribute("data-id") || "";
-        let item = raw ? map.get(String(raw)) : null;
-        if (!item) {
-          const txt = card.innerText || "";
-          item = list.find(x => x.cantonese && txt.includes(x.cantonese));
-        }
-        if (!item || !item.audioUrl || card.querySelector("audio[data-vocabulary-audio]")) continue;
-
-        const audio = document.createElement("audio");
-        audio.controls = true;
-        audio.preload = "none";
-        audio.src = item.audioUrl;
-        audio.dataset.vocabularyAudio = "1";
-        audio.style.width = "100%";
-        audio.style.marginTop = "10px";
-        (del?.parentElement || edit?.parentElement || card).appendChild(audio);
-      }
+      addPlayButtonsFromData(list);
     } catch (_) {}
   }
 
